@@ -1,7 +1,7 @@
 # Catgirl Randomizer
 **An ap made by a weeb, for weebs.**
 
-Catgirl Randomizer pulls a random image from [nekos.moe](https:nekos.moe) and displays it to you.
+Catgirl Randomizer pulls a random image from [nekos.moe](https://nekos.moe) and displays it to you.
 
 This app was based heavily on [Catgirl Downloader](https://github.com/NyarchLinux/CatgirlDownloader), but with some extra features and for every operating system.
 
@@ -17,7 +17,7 @@ This app was based heavily on [Catgirl Downloader](https://github.com/NyarchLinu
 </details>
 
 ## Current features
-- Get random high quality images from [nekos.moe](https:nekos.moe).
+- Get random high quality images from [nekos.moe](https://nekos.moe).
 - Save the currently displayed image.
 - Open the currently displayed image in the default browser.
 - Toggle NSFW
