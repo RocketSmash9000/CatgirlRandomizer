@@ -23,6 +23,8 @@ import javafx.scene.layout.Region;
 import javafx.stage.Stage;
 import javafx.stage.FileChooser;
 import javafx.embed.swing.SwingFXUtils;
+import java.awt.Taskbar;
+import java.awt.Toolkit;
 
 import javax.imageio.ImageIO;
 
@@ -109,54 +111,56 @@ public class Main extends Application {
         Scene scene = new Scene(root, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         stage.setTitle("Catgirl Randomizer");
         stage.setScene(scene);
+        // Set app/window icon depending on OS
+        setAppIcon(stage);
         stage.show();
 
         loadImageAsync();
     }
 
-	@SuppressWarnings("D")
+    @SuppressWarnings("D")
     private void updateInfoFromRandomJson(JsonNode jsonRoot) {
-	    try {
-		    JsonNode first = jsonRoot.at("/images/0");
-		    if (!first.isMissingNode()) {
-			    String artist = optionalText(first.get("artist")).orElse(null);
-			    List<String> tags = new ArrayList<>();
-			    JsonNode tagsNode = first.get("tags");
-			    if (tagsNode != null && tagsNode.isArray()) {
-				    for (JsonNode t : tagsNode) {
-					    String v = t.asText(null);
-					    if (v != null && !v.isBlank()) tags.add(v);
-				    }
-			    }
-			    int likes = first.has("likes") ? first.get("likes").asInt(-1) : -1;
-			    currentArtist = artist;
-			    currentTags = tags;
-			    currentLikes = likes;
-		    }
-	    } catch (Exception ignored) {
-	    }
+        try {
+            JsonNode first = jsonRoot.at("/images/0");
+            if (!first.isMissingNode()) {
+                String artist = optionalText(first.get("artist")).orElse(null);
+                List<String> tags = new ArrayList<>();
+                JsonNode tagsNode = first.get("tags");
+                if (tagsNode != null && tagsNode.isArray()) {
+                    for (JsonNode t : tagsNode) {
+                        String v = t.asText(null);
+                        if (v != null && !v.isBlank()) tags.add(v);
+                    }
+                }
+                int likes = first.has("likes") ? first.get("likes").asInt(-1) : -1;
+                currentArtist = artist;
+                currentTags = tags;
+                currentLikes = likes;
+            }
+        } catch (Exception ignored) {
+        }
     }
 
-	@SuppressWarnings("D")
+    @SuppressWarnings("D")
     private void updateInfoFromDetails(JsonNode details) {
-	    try {
-		    JsonNode imageNode = details.get("image");
-		    if (imageNode != null && imageNode.isObject()) {
-			    String artist = optionalText(imageNode.get("artist")).orElse(currentArtist);
-			    List<String> tags = new ArrayList<>();
-			    JsonNode tagsNode = imageNode.get("tags");
-			    if (tagsNode != null && tagsNode.isArray()) {
-				    for (JsonNode t : tagsNode) {
-					    String v = t.asText(null);
-					    if (v != null && !v.isBlank()) tags.add(v);
-				    }
-			    } else {
-				    tags = currentTags;
-			    }
-			    int likes = imageNode.has("likes") ? imageNode.get("likes").asInt(currentLikes) : currentLikes;
-			    currentArtist = artist;
-			    currentTags = tags;
-			    currentLikes = likes;
+        try {
+            JsonNode imageNode = details.get("image");
+            if (imageNode != null && imageNode.isObject()) {
+                String artist = optionalText(imageNode.get("artist")).orElse(currentArtist);
+                List<String> tags = new ArrayList<>();
+                JsonNode tagsNode = imageNode.get("tags");
+                if (tagsNode != null && tagsNode.isArray()) {
+                    for (JsonNode t : tagsNode) {
+                        String v = t.asText(null);
+                        if (v != null && !v.isBlank()) tags.add(v);
+                    }
+                } else {
+                    tags = currentTags;
+                }
+                int likes = imageNode.has("likes") ? imageNode.get("likes").asInt(currentLikes) : currentLikes;
+                currentArtist = artist;
+                currentTags = tags;
+                currentLikes = likes;
             }
         } catch (Exception ignored) {
         }
@@ -305,231 +309,231 @@ public class Main extends Application {
         }
     }
 
-@SuppressWarnings("D")
-private void loadImageAsync() {
-    setStatus("Loading...");
-    currentImageId = null; // reset until known
-    currentArtist = null;
-    currentTags = new ArrayList<>();
-    currentLikes = -1;
-    // Run network on a background thread
-    Thread t = new Thread(() -> {
-        try {
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(IMAGE_API + "?nsfw=" + nsfw))
-                    .header("Accept", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .GET()
-                    .build();
-            HttpResponse<byte[]> resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+    @SuppressWarnings("D")
+    private void loadImageAsync() {
+        setStatus("Loading...");
+        currentImageId = null; // reset until known
+        currentArtist = null;
+        currentTags = new ArrayList<>();
+        currentLikes = -1;
+        // Run network on a background thread
+        Thread t = new Thread(() -> {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(IMAGE_API + "?nsfw=" + nsfw))
+                        .header("Accept", "application/json")
+                        .timeout(Duration.ofSeconds(20))
+                        .GET()
+                        .build();
+                HttpResponse<byte[]> resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
 
-            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                Platform.runLater(() -> setStatus("HTTP " + resp.statusCode()));
-                return;
-            }
-
-            String contentType = resp.headers().firstValue("Content-Type").orElse("");
-            byte[] body = resp.body();
-
-            if (contentType.contains("image/")) {
-                // Direct image bytes
-                showImageBytes(body);
-                return;
-            }
-
-            if (contentType.contains("application/json") || looksLikeJson(body)) {
-                String json = new String(body, StandardCharsets.UTF_8);
-                JsonNode root = mapper.readTree(json);
-                // Try to find a usable URL in a flexible way
-                Optional<String> imageUrl = extractImageUrl(root);
-                // Try to capture an ID if present even when URL is present
-                Optional<String> id = optionalText(root.at("/images/0/id"))
-                        .or(() -> optionalText(root.at("/images/0/_id")));
-                id.ifPresent(v -> currentImageId = v);
-                // Extract informational fields if present
-                updateInfoFromRandomJson(root);
-                if (imageUrl.isPresent()) {
-                    fetchAndShowImage(imageUrl.get());
+                if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                    Platform.runLater(() -> setStatus("HTTP " + resp.statusCode()));
                     return;
                 }
-                // Try id -> construct plausible URL
-                if (id.isPresent()) {
-                    currentImageId = id.get();
-                    // Per observed API behavior, loading the public image route works
-                    String url = "https://nekos.moe/image/" + id.get();
-                    showImageFromUrl(url);
+
+                String contentType = resp.headers().firstValue("Content-Type").orElse("");
+                byte[] body = resp.body();
+
+                if (contentType.contains("image/")) {
+                    // Direct image bytes
+                    showImageBytes(body);
                     return;
                 }
-                Platform.runLater(() -> setStatus("JSON parsed but no image URL/id found"));
-                return;
+
+                if (contentType.contains("application/json") || looksLikeJson(body)) {
+                    String json = new String(body, StandardCharsets.UTF_8);
+                    JsonNode root = mapper.readTree(json);
+                    // Try to find a usable URL in a flexible way
+                    Optional<String> imageUrl = extractImageUrl(root);
+                    // Try to capture an ID if present even when URL is present
+                    Optional<String> id = optionalText(root.at("/images/0/id"))
+                            .or(() -> optionalText(root.at("/images/0/_id")));
+                    id.ifPresent(v -> currentImageId = v);
+                    // Extract informational fields if present
+                    updateInfoFromRandomJson(root);
+                    if (imageUrl.isPresent()) {
+                        fetchAndShowImage(imageUrl.get());
+                        return;
+                    }
+                    // Try id -> construct plausible URL
+                    if (id.isPresent()) {
+                        currentImageId = id.get();
+                        // Per observed API behavior, loading the public image route works
+                        String url = "https://nekos.moe/image/" + id.get();
+                        showImageFromUrl(url);
+                        return;
+                    }
+                    Platform.runLater(() -> setStatus("JSON parsed but no image URL/id found"));
+                    return;
+                }
+
+                Platform.runLater(() -> setStatus("Unsupported Content-Type: " + contentType));
+            } catch (Exception ex) {
+                Platform.runLater(() -> setStatus("Error: " + ex.getMessage()));
             }
-
-            Platform.runLater(() -> setStatus("Unsupported Content-Type: " + contentType));
-        } catch (Exception ex) {
-            Platform.runLater(() -> setStatus("Error: " + ex.getMessage()));
-        }
-    }, "image-loader");
-    t.setDaemon(true);
-    t.start();
-}
-
-private boolean looksLikeJson(byte[] body) {
-    if (body == null || body.length == 0) return false;
-    byte first = body[0];
-    return first == '{' || first == '[';
-}
-
-private Optional<String> optionalText(JsonNode node) {
-    if (node == null || node.isMissingNode() || node.isNull()) return Optional.empty();
-    String text = node.asText(null);
-    return text == null || text.isBlank() ? Optional.empty() : Optional.of(text);
-}
-
-@SuppressWarnings("D")
-private Optional<String> extractImageUrl(JsonNode root) {
-    // Try common fields under images[0]
-    JsonNode first = root.at("/images/0");
-    if (first.isMissingNode()) return Optional.empty();
-
-    // Direct URL fields
-    for (String key : new String[]{"url", "image_url", "file", "path"}) {
-        Optional<String> v = optionalText(first.get(key));
-        if (v.isPresent() && (v.get().startsWith("http://") || v.get().startsWith("https://"))) {
-            return v;
-        }
+        }, "image-loader");
+        t.setDaemon(true);
+        t.start();
     }
-    // Sometimes nested formats
-    JsonNode formats = first.get("formats");
-    if (formats != null && formats.isObject()) {
-        for (JsonNode fmt : formats) {
-            Optional<String> v = optionalText(fmt.get("url"));
+
+    private boolean looksLikeJson(byte[] body) {
+        if (body == null || body.length == 0) return false;
+        byte first = body[0];
+        return first == '{' || first == '[';
+    }
+
+    private Optional<String> optionalText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return Optional.empty();
+        String text = node.asText(null);
+        return text == null || text.isBlank() ? Optional.empty() : Optional.of(text);
+    }
+
+    @SuppressWarnings("D")
+    private Optional<String> extractImageUrl(JsonNode root) {
+        // Try common fields under images[0]
+        JsonNode first = root.at("/images/0");
+        if (first.isMissingNode()) return Optional.empty();
+
+        // Direct URL fields
+        for (String key : new String[]{"url", "image_url", "file", "path"}) {
+            Optional<String> v = optionalText(first.get(key));
             if (v.isPresent() && (v.get().startsWith("http://") || v.get().startsWith("https://"))) {
                 return v;
             }
         }
-    }
-    return Optional.empty();
-}
-
-private void fetchAndShowImage(String url) {
-    // Use JavaFX's built-in URL loading to avoid content-type quirks
-    showImageFromUrl(url);
-}
-
-@SuppressWarnings("D")
-private void showImageFromUrl(String url) {
-    setStatus("Loading from URL: " + url);
-    Platform.runLater(() -> {
-        Image image = new Image(url, true);
-        image.errorProperty().addListener((obs, wasErr, isErr) -> {
-            if (isErr) {
-                setStatus("Image load error: " + (image.getException() != null ? image.getException().getMessage() : "unknown"));
+        // Sometimes nested formats
+        JsonNode formats = first.get("formats");
+        if (formats != null && formats.isObject()) {
+            for (JsonNode fmt : formats) {
+                Optional<String> v = optionalText(fmt.get("url"));
+                if (v.isPresent() && (v.get().startsWith("http://") || v.get().startsWith("https://"))) {
+                    return v;
+                }
             }
-        });
-        // Infer a reasonable default file name from URL
-        if (!url.isBlank()) {
-            String name = url;
-            int q = name.indexOf('?');
-            if (q >= 0) name = name.substring(0, q);
-            int slash = name.lastIndexOf('/');
-            if (slash >= 0 && slash < name.length() - 1) name = name.substring(slash + 1);
-            if (name.isBlank()) name = "catgirl.png";
-            // ensure an extension
-            if (!name.contains(".")) name = name + ".png";
-            currentImageName = name;
-            // attempt to extract id from URL
-            String maybeId = parseIdFromUrl(url);
-            if (maybeId != null && !maybeId.isBlank()) currentImageId = maybeId;
         }
-        // One-shot resize when dimensions are available
-        final boolean[] done = {false};
-        var widthL = new javafx.beans.value.ChangeListener<Number>() {
-            @Override public void changed(javafx.beans.value.ObservableValue<? extends Number> o, Number ov, Number nv) {
-                if (!done[0] && nv != null && nv.doubleValue() > 0) {
+        return Optional.empty();
+    }
+
+    private void fetchAndShowImage(String url) {
+        // Use JavaFX's built-in URL loading to avoid content-type quirks
+        showImageFromUrl(url);
+    }
+
+    @SuppressWarnings("D")
+    private void showImageFromUrl(String url) {
+        setStatus("Loading from URL: " + url);
+        Platform.runLater(() -> {
+            Image image = new Image(url, true);
+            image.errorProperty().addListener((obs, wasErr, isErr) -> {
+                if (isErr) {
+                    setStatus("Image load error: " + (image.getException() != null ? image.getException().getMessage() : "unknown"));
+                }
+            });
+            // Infer a reasonable default file name from URL
+            if (!url.isBlank()) {
+                String name = url;
+                int q = name.indexOf('?');
+                if (q >= 0) name = name.substring(0, q);
+                int slash = name.lastIndexOf('/');
+                if (slash >= 0 && slash < name.length() - 1) name = name.substring(slash + 1);
+                if (name.isBlank()) name = "catgirl.png";
+                // ensure an extension
+                if (!name.contains(".")) name = name + ".png";
+                currentImageName = name;
+                // attempt to extract id from URL
+                String maybeId = parseIdFromUrl(url);
+                if (maybeId != null && !maybeId.isBlank()) currentImageId = maybeId;
+            }
+            // One-shot resize when dimensions are available
+            final boolean[] done = {false};
+            var widthL = new javafx.beans.value.ChangeListener<Number>() {
+                @Override public void changed(javafx.beans.value.ObservableValue<? extends Number> o, Number ov, Number nv) {
+                    if (!done[0] && nv != null && nv.doubleValue() > 0) {
+                        done[0] = true;
+                        setStatus("Image loaded from URL");
+                        resizeWindowToImage(image, menuBar.getHeight());
+                        // detach
+                        image.widthProperty().removeListener(this);
+                    }
+                }
+            };
+            image.widthProperty().addListener(widthL);
+            image.progressProperty().addListener((obs, oldV, newV) -> {
+                if (!done[0] && newV != null && newV.doubleValue() >= 1.0 && image.getWidth() > 0) {
                     done[0] = true;
                     setStatus("Image loaded from URL");
                     resizeWindowToImage(image, menuBar.getHeight());
-                    // detach
-                    image.widthProperty().removeListener(this);
                 }
-            }
-        };
-        image.widthProperty().addListener(widthL);
-        image.progressProperty().addListener((obs, oldV, newV) -> {
-            if (!done[0] && newV != null && newV.doubleValue() >= 1.0 && image.getWidth() > 0) {
-                done[0] = true;
-                setStatus("Image loaded from URL");
-                resizeWindowToImage(image, menuBar.getHeight());
-            }
+            });
+            imageView.setImage(image);
         });
-        imageView.setImage(image);
-    });
-}
+    }
 
-private void fetchFromDetailsById(String id) {
-    setStatus("Resolving details for id: " + id);
-    try {
-        String detailsUrl = "https://nekos.moe/api/v1/image/" + id;
-        HttpRequest infoReq = HttpRequest.newBuilder()
-                .uri(URI.create(detailsUrl))
-                .header("Accept", "application/json")
-                .timeout(Duration.ofSeconds(20))
-                .GET()
-                .build();
-        http.sendAsync(infoReq, HttpResponse.BodyHandlers.ofByteArray())
-                .whenComplete((resp, err) -> {
-                    if (err != null) {
-                        Platform.runLater(() -> setStatus("Details fetch error: " + err.getMessage()));
-                        return;
-                    }
-                    if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                        Platform.runLater(() -> setStatus("Details HTTP " + resp.statusCode()));
-                        return;
-                    }
-                    byte[] body = resp.body();
-                    try {
-                        JsonNode details = mapper.readTree(new String(body, StandardCharsets.UTF_8));
-                        Optional<String> url = extractImageUrl(details)
-                                .or(() -> optionalText(details.at("/image/url")))
-                                .or(() -> optionalText(details.at("/image/image_url")))
-                                .or(() -> optionalText(details.at("/image/file")))
-                                .or(() -> optionalText(details.at("/image/path")));
-                        if (url.isPresent()) {
-                            String u = url.get();
-                            if (u.startsWith("/")) {
-                                u = "https://nekos.moe" + u;
-                            }
-                            // Also attempt to extract info from details shape
-                            updateInfoFromDetails(details);
-                            showImageFromUrl(u);
+    private void fetchFromDetailsById(String id) {
+        setStatus("Resolving details for id: " + id);
+        try {
+            String detailsUrl = "https://nekos.moe/api/v1/image/" + id;
+            HttpRequest infoReq = HttpRequest.newBuilder()
+                    .uri(URI.create(detailsUrl))
+                    .header("Accept", "application/json")
+                    .timeout(Duration.ofSeconds(20))
+                    .GET()
+                    .build();
+            http.sendAsync(infoReq, HttpResponse.BodyHandlers.ofByteArray())
+                    .whenComplete((resp, err) -> {
+                        if (err != null) {
+                            Platform.runLater(() -> setStatus("Details fetch error: " + err.getMessage()));
                             return;
                         }
-                        showImageFromUrl("https://nekos.moe/image/" + id);
-                    } catch (Exception ex) {
-                        Platform.runLater(() -> setStatus("Details parse error: " + ex.getMessage()));
-                    }
-                });
-    } catch (Exception e) {
-        Platform.runLater(() -> setStatus("Bad details URL: " + e.getMessage()));
+                        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                            Platform.runLater(() -> setStatus("Details HTTP " + resp.statusCode()));
+                            return;
+                        }
+                        byte[] body = resp.body();
+                        try {
+                            JsonNode details = mapper.readTree(new String(body, StandardCharsets.UTF_8));
+                            Optional<String> url = extractImageUrl(details)
+                                    .or(() -> optionalText(details.at("/image/url")))
+                                    .or(() -> optionalText(details.at("/image/image_url")))
+                                    .or(() -> optionalText(details.at("/image/file")))
+                                    .or(() -> optionalText(details.at("/image/path")));
+                            if (url.isPresent()) {
+                                String u = url.get();
+                                if (u.startsWith("/")) {
+                                    u = "https://nekos.moe" + u;
+                                }
+                                // Also attempt to extract info from details shape
+                                updateInfoFromDetails(details);
+                                showImageFromUrl(u);
+                                return;
+                            }
+                            showImageFromUrl("https://nekos.moe/image/" + id);
+                        } catch (Exception ex) {
+                            Platform.runLater(() -> setStatus("Details parse error: " + ex.getMessage()));
+                        }
+                    });
+        } catch (Exception e) {
+            Platform.runLater(() -> setStatus("Bad details URL: " + e.getMessage()));
+        }
     }
-}
 
-private void showImageBytes(byte[] bytes) {
-    Image image = new Image(new ByteArrayInputStream(bytes));
-    Platform.runLater(() -> {
-        imageView.setImage(image);
-        setStatus("Loaded " + bytes.length + " bytes");
-        currentImageName = "catgirl.png"; // fallback name when not from URL
-        currentImageId = null;
-        currentArtist = null;
-        currentTags = new ArrayList<>();
-        currentLikes = -1;
-        double topBar = stageRef != null && ((BorderPane) stageRef.getScene().getRoot()).getTop() != null
-                ? ((BorderPane) stageRef.getScene().getRoot()).getTop().getBoundsInParent().getHeight()
-                : 0;
-        resizeWindowToImage(image, topBar);
-    });
-}
+    private void showImageBytes(byte[] bytes) {
+        Image image = new Image(new ByteArrayInputStream(bytes));
+        Platform.runLater(() -> {
+            imageView.setImage(image);
+            setStatus("Loaded " + bytes.length + " bytes");
+            currentImageName = "catgirl.png"; // fallback name when not from URL
+            currentImageId = null;
+            currentArtist = null;
+            currentTags = new ArrayList<>();
+            currentLikes = -1;
+            double topBar = stageRef != null && ((BorderPane) stageRef.getScene().getRoot()).getTop() != null
+                    ? ((BorderPane) stageRef.getScene().getRoot()).getTop().getBoundsInParent().getHeight()
+                    : 0;
+            resizeWindowToImage(image, topBar);
+        });
+    }
 
     private void setStatus(String text) {
         if (Platform.isFxApplicationThread()) {
@@ -566,7 +570,7 @@ private void showImageBytes(byte[] bytes) {
 
         // If image would exceed screen, scale image to the default content area and size window to the scaled image
         if (imgW > screen.getWidth() || imgHWithBars > screen.getHeight()) {
-	        double contentMaxH = Math.max(0, DEFAULT_HEIGHT - topBarH);
+            double contentMaxH = Math.max(0, DEFAULT_HEIGHT - topBarH);
             double scale = Math.min(DEFAULT_WIDTH / imgW, contentMaxH / (imgHWithBars - topBarH));
             scale = Math.max(0.01, Math.min(1.0, scale));
             double windowW = Math.floor(imgW * scale);
@@ -576,7 +580,7 @@ private void showImageBytes(byte[] bytes) {
             imageView.setFitWidth(windowW);
             imageView.setFitHeight(scaledH);
 
-	        double windowH = scaledH + topBarH;
+            double windowH = scaledH + topBarH;
 
             root.setPrefSize(windowW, windowH);
             root.applyCss();
@@ -630,6 +634,63 @@ private void showImageBytes(byte[] bytes) {
         stageRef.setMinWidth(oldMinW);
         stageRef.setMinHeight(oldMinH);
         stageRef.centerOnScreen();
+    }
+
+    private void setAppIcon(Stage stage) {
+        if (stage == null) return;
+        String os = System.getProperty("os.name", "").toLowerCase();
+        // Prefer ICO on Windows if provided, else PNG. On other OSes use PNG.
+        try {
+            if (os.contains("win")) {
+                var icoUrl = getClass().getResource("/icon.ico");
+                if (icoUrl != null) {
+                    try {
+                        // JavaFX Image may not support ICO everywhere; try anyway.
+                        Image fxIco = new Image(icoUrl.toExternalForm());
+                        if (!fxIco.isError()) {
+                            stage.getIcons().add(fxIco);
+                        }
+                    } catch (Exception ignored) { }
+                }
+            }
+            // Always add PNG as a reliable fallback/default
+            var pngUrl = getClass().getResource("/icon.png");
+            if (pngUrl != null) {
+                try {
+                    Image png = new Image(pngUrl.toExternalForm());
+                    if (!png.isError()) {
+                        stage.getIcons().add(png);
+                    }
+                } catch (Exception ignored) { }
+            }
+        } catch (Exception ignored) { }
+
+        // Also set OS taskbar/dock icon where supported via AWT
+        try {
+            Taskbar tb = Taskbar.getTaskbar();
+            if (tb.isSupported(Taskbar.Feature.ICON_IMAGE)) {
+                java.awt.Image awtImg = null;
+                if (os.contains("win")) {
+                    var icoUrl = getClass().getResource("/icon.ico");
+                    if (icoUrl != null) {
+                        try {
+                            awtImg = Toolkit.getDefaultToolkit().getImage(icoUrl);
+                        } catch (Exception ignored) { }
+                    }
+                }
+                if (awtImg == null) {
+                    var pngUrl = getClass().getResource("/icon.png");
+                    if (pngUrl != null) {
+                        try {
+                            awtImg = Toolkit.getDefaultToolkit().getImage(pngUrl);
+                        } catch (Exception ignored) { }
+                    }
+                }
+                if (awtImg != null) {
+                    tb.setIconImage(awtImg);
+                }
+            }
+        } catch (Throwable ignored) { }
     }
 
     public static void main(String[] args) {

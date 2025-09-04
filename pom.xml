@@ -120,6 +120,7 @@
                 <artifactId>gluonfx-maven-plugin</artifactId>
                 <version>1.0.27</version>
                 <configuration>
+                    <graalvmHome>/home/rocket/graalvm-jdk-21.0.8+12.1</graalvmHome>
                     <target>host</target> <!-- builds for current OS -->
                     <mainClass>com.github.RocketSmash9000.Main</mainClass>
                 </configuration>
