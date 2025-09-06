@@ -25,8 +25,10 @@ This app was based heavily on [Catgirl Downloader](https://github.com/NyarchLinu
 - Window automatically fits to the image it displays.
 
 ## Planned features
-- [ ] **Local image history**: to go back and download that one image you forgot to save.
+- [x] **Local image history**: to go back and download that one image you forgot to save.
 - [ ] **Bookmark images**: go back to your favorite catgirls in an instant.
+
+**Not possible right now:**
 - [ ] **Auth with user token**:
   - [ ] Like posts
   - [ ] Favorite posts

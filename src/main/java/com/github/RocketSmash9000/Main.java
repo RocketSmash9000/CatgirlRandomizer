@@ -32,10 +32,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -82,7 +86,6 @@ public class Main extends Application {
         MenuItem saveItem = new MenuItem("Save Image...");
         saveItem.setAccelerator(new KeyCodeCombination(KeyCode.S, KeyCombination.SHORTCUT_DOWN));
         saveItem.setOnAction(e -> saveCurrentImageAs());
-        file.getItems().addAll(saveItem);
 
         Menu actions = new Menu("Actions");
         MenuItem refreshItem = new MenuItem("Refresh");
@@ -96,6 +99,12 @@ public class Main extends Application {
             loadImageAsync();
         });
 
+        Menu historyMenu = new Menu("History");
+
+        MenuItem history = new MenuItem("History");
+        history.setAccelerator(new KeyCodeCombination(KeyCode.H, KeyCombination.SHORTCUT_DOWN));
+        history.setOnAction(e -> showHistory());
+
         MenuItem openInBrowser = new MenuItem("Open in Browser");
         openInBrowser.setAccelerator(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN));
         openInBrowser.setOnAction(e -> openPostInBrowser());
@@ -104,8 +113,10 @@ public class Main extends Application {
         showInfo.setAccelerator(new KeyCodeCombination(KeyCode.I, KeyCombination.SHORTCUT_DOWN));
         showInfo.setOnAction(e -> showImageInfo());
 
-        actions.getItems().addAll(refreshItem, toggleNsfw, openInBrowser, showInfo);
-        menuBar.getMenus().addAll(file, actions);
+        file.getItems().addAll(saveItem, openInBrowser);
+        historyMenu.getItems().add(history);
+        actions.getItems().addAll(refreshItem, toggleNsfw, showInfo);
+        menuBar.getMenus().addAll(file, actions, historyMenu);
         root.setTop(menuBar);
 
         Scene scene = new Scene(root, DEFAULT_WIDTH, DEFAULT_HEIGHT);
@@ -116,6 +127,145 @@ public class Main extends Application {
         stage.show();
 
         loadImageAsync();
+    }
+
+    private void showHistory() {
+        // Build a gallery view from history IDs
+        try {
+            // Determine config directory
+            String configDir;
+            String os = System.getProperty("os.name").toLowerCase();
+            if (os.contains("win")) {
+                configDir = System.getenv("APPDATA") + "\\CGR";
+            } else {
+                configDir = System.getProperty("user.home") + "/.config/CGR";
+            }
+
+            Path configPath = Paths.get(configDir);
+            Path historyFile = configPath.resolve("history.txt");
+
+            if (!Files.exists(historyFile)) {
+                setStatus("No history available");
+                Alert a = new Alert(Alert.AlertType.INFORMATION);
+                a.setTitle("History");
+                a.setHeaderText("No history yet");
+                a.setContentText("View some images first so they appear here.");
+                a.initOwner(stageRef);
+                a.showAndWait();
+                return;
+            }
+
+            List<String> ids = Files.readAllLines(historyFile, StandardCharsets.UTF_8);
+            if (ids.isEmpty()) {
+                setStatus("No history available");
+                Alert a = new Alert(Alert.AlertType.INFORMATION);
+                a.setTitle("History");
+                a.setHeaderText("No history yet");
+                a.setContentText("View some images first so they appear here.");
+                a.initOwner(stageRef);
+                a.showAndWait();
+                return;
+            }
+
+            // Newest at the bottom of file; show newest first by iterating from end
+            List<String> ordered = new ArrayList<>();
+            for (int i = ids.size() - 1; i >= 0; i--) {
+                String id = ids.get(i);
+                if (id != null && !id.isBlank()) ordered.add(id.trim());
+            }
+
+            FlowPane gallery = new FlowPane();
+            gallery.setHgap(12);
+            gallery.setVgap(12);
+            gallery.setStyle("-fx-padding: 12; -fx-background-color: black;");
+
+            for (String id : ordered) {
+                // Each tile is an ImageView loading from the public image route
+                ImageView thumb = new ImageView();
+                thumb.setPreserveRatio(true);
+                thumb.setSmooth(true);
+                thumb.setFitWidth(180);
+                thumb.setFitHeight(140);
+
+                String url = "https://nekos.moe/image/" + id;
+                Image img = new Image(url, true); // background loading
+                thumb.setImage(img);
+
+                // On click, restore main image view and load the selected image/id
+                final String selectedId = id; // ensure correct capture per tile
+                thumb.setOnMouseClicked(evt -> {
+                    BorderPane root = (BorderPane) stageRef.getScene().getRoot();
+                    root.setCenter(imageView);
+                    // Load the clicked image directly
+                    showImageFromUrl("https://nekos.moe/image/" + selectedId);
+                    // Optionally fetch details to populate metadata (artist/tags/likes)
+                    fetchFromDetailsById(selectedId);
+                });
+
+                gallery.getChildren().add(thumb);
+            }
+
+            ScrollPane scroller = new ScrollPane(gallery);
+            scroller.setFitToWidth(true);
+            scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            scroller.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+
+            BorderPane root = (BorderPane) stageRef.getScene().getRoot();
+            root.setCenter(scroller);
+            setStatus("Showing history (" + ordered.size() + ")");
+        } catch (Exception ex) {
+            setStatus("History error: " + ex.getMessage());
+        }
+    }
+
+    private void saveHistory(String postID) {
+        try {
+            if (postID == null || postID.isEmpty()) {
+                System.err.println("Post ID is invalid");
+                return;
+            }
+
+            // Get the config directory based on the OS
+            String configDir;
+            String os = System.getProperty("os.name").toLowerCase();
+            if (os.contains("win")) {
+                // Windows: APPDATA\CGR
+                configDir = System.getenv("APPDATA") + "\\CGR";
+            } else {
+                // Linux/macOS: ~/.config/CGR
+                configDir = System.getProperty("user.home") + "/.config/CGR";
+            }
+
+            // Create config directory if it doesn't exist
+            Path configPath = Paths.get(configDir);
+            if (!Files.exists(configPath)) {
+                Files.createDirectories(configPath);
+            }
+
+            // Define history file path
+            Path historyFile = configPath.resolve("history.txt");
+            
+            // Read existing history
+            List<String> history = new ArrayList<>();
+            if (Files.exists(historyFile)) {
+                history = Files.readAllLines(historyFile, StandardCharsets.UTF_8);
+            }
+
+            // Add new post ID (avoid duplicates by removing if it already exists)
+            history.remove(postID);
+            history.add(postID);
+
+            // Limit history to 25 entries
+            if (history.size() > 25) {
+                history = history.subList(history.size() - 25, history.size());
+            }
+
+            // Write back to file
+            Files.write(historyFile, history, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.err.println("Error saving history: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     @SuppressWarnings("D")
@@ -362,6 +512,7 @@ public class Main extends Application {
                         // Per observed API behavior, loading the public image route works
                         String url = "https://nekos.moe/image/" + id.get();
                         showImageFromUrl(url);
+                        saveHistory(currentImageId);
                         return;
                     }
                     Platform.runLater(() -> setStatus("JSON parsed but no image URL/id found"));
